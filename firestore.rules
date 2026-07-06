@@ -1,0 +1,125 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net: Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && (
+        request.auth.token.email_verified == true ||
+        request.auth.token.firebase.sign_in_provider == 'google.com'
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation Blueprint for Recording Entity
+    function isValidRecording(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 256
+        && data.size is string && data.size() <= 64
+        && data.date is string && data.date.size() <= 64
+        && data.url is string && data.url.size() <= 2048
+        && data.userId is string && data.userId.size() <= 128
+        && data.userId == request.auth.uid;
+    }
+
+    // Validation Blueprint for Shared Class Entity
+    function isValidSharedClass(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 256
+        && data.url is string && data.url.size() <= 2048
+        && data.teacherName is string && data.teacherName.size() <= 128
+        && data.subjectName is string && data.subjectName.size() <= 128
+        && data.date is string && data.date.size() <= 64
+        && data.userId is string && data.userId.size() <= 128
+        && data.userId == request.auth.uid;
+    }
+
+    // ----------------------------------------------------
+    // COLLECTION: /users/{userId}/recordings/{recordingId}
+    // ----------------------------------------------------
+    match /users/{userId}/recordings/{recordingId} {
+      
+      // Get/List: Only the owner can access their own recordings
+      allow get, list: if isSignedIn() && userId == request.auth.uid;
+
+      // Create: Owner can write if schema is valid
+      allow create: if isSignedIn() 
+        && isEmailVerified()
+        && userId == request.auth.uid
+        && isValidId(recordingId)
+        && isValidRecording(incoming())
+        && incoming().id == recordingId
+        && (!incoming().keys().contains('createdAt') || incoming().createdAt == request.time);
+
+      // Update: Owner can update non-immutable fields
+      allow update: if isSignedIn()
+        && isEmailVerified()
+        && userId == request.auth.uid
+        && isValidId(recordingId)
+        && isValidRecording(incoming())
+        && incoming().userId == existing().userId
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'url', 'chapters', 'transcriptionText', 'srtText', 'size', 'date']);
+
+      // Delete: Only the owner
+      allow delete: if isSignedIn() && userId == request.auth.uid && isValidId(recordingId);
+    }
+
+    // ----------------------------------------------------
+    // COLLECTION: /sharedClasses/{classId}
+    // ----------------------------------------------------
+    match /sharedClasses/{classId} {
+      
+      // Get: Anyone can get a specific shared class (needed for students)
+      allow get: if isValidId(classId);
+
+      // List: Forbidden to prevent massive query scraping/harvesting
+      allow list: if false;
+
+      // Create: Signed-in verified teacher can create
+      allow create: if isSignedIn()
+        && isEmailVerified()
+        && isValidId(classId)
+        && isValidSharedClass(incoming())
+        && incoming().id == classId
+        && (!incoming().keys().contains('createdAt') || incoming().createdAt == request.time);
+
+      // Update: Only the teacher who created it
+      allow update: if isSignedIn()
+        && isEmailVerified()
+        && isValidId(classId)
+        && isValidSharedClass(incoming())
+        && incoming().userId == existing().userId
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'url', 'chapters', 'srtText', 'teacherName', 'subjectName', 'date']);
+
+      // Delete: Only the teacher who created it
+      allow delete: if isSignedIn() 
+        && isEmailVerified() 
+        && isValidId(classId) 
+        && existing().userId == request.auth.uid;
+    }
+  }
+}

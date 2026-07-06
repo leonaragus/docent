@@ -1,0 +1,6 @@
+{
+  "name": "RAICEP PDF exclusive",
+  "description": "An interactive full-stack PDF analyzer. Upload documents to summarize, query, extract key data, or chat dynamically with your PDFs using Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "RAICEP control de alumnos",
+  "description": "Una plataforma moderna, visual y automatizada para gestionar cursos, inscripciones de alumnos y el control automático de pagos y retrasos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

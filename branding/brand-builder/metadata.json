@@ -1,0 +1,6 @@
+{
+  "name": "RAICEP generador de marca",
+  "description": "Herramienta profesional de generación, previsualización y exportación de marcas, logotipos y membretes para el Registro Argentino de Instituciones y Homologación de Estudios Profesionales.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

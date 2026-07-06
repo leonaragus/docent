@@ -1,0 +1,76 @@
+{
+  "collections": {
+    "users": {
+      "description": "User specific configurations and nested data collections",
+      "documents": {
+        "{userId}": {
+          "subcollections": {
+            "config": {
+              "description": "User specific configuration such as institution name, logo, subtitle",
+              "documents": {
+                "header": {
+                  "fields": {
+                    "institutionName": { "type": "string" },
+                    "institutionSubtitle": { "type": "string" },
+                    "institutionLogo": { "type": "string" },
+                    "simulatedDate": { "type": "string" }
+                  }
+                }
+              }
+            },
+            "courses": {
+              "description": "Courses created by the user",
+              "documents": {
+                "{courseId}": {
+                  "fields": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "tuitionFee": { "type": "number" },
+                    "dueDay": { "type": "number" },
+                    "startMonth": { "type": "number" },
+                    "duration": { "type": "number" },
+                    "color": { "type": "string" },
+                    "currency": { "type": "string" },
+                    "teacherName": { "type": "string" }
+                  }
+                }
+              }
+            },
+            "students": {
+              "description": "Students registered in courses by the user",
+              "documents": {
+                "{studentId}": {
+                  "fields": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "email": { "type": "string" },
+                    "phone": { "type": "string" },
+                    "courseId": { "type": "string" },
+                    "status": { "type": "string" }
+                  }
+                }
+              }
+            },
+            "payments": {
+              "description": "Record of tuition fees payments",
+              "documents": {
+                "{paymentId}": {
+                  "fields": {
+                    "id": { "type": "string" },
+                    "studentId": { "type": "string" },
+                    "courseId": { "type": "string" },
+                    "monthIndex": { "type": "number" },
+                    "amountPaid": { "type": "number" },
+                    "status": { "type": "string" },
+                    "payDate": { "type": "string" },
+                    "notes": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

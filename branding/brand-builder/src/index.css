@@ -1,0 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Space+Grotesk:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Lora", Georgia, serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-premium: "Outfit", sans-serif;
+  --font-classic: "Playfair Display", serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+/* Print CSS Stylesheet */
+@media print {
+  /* Hide all elements of the application */
+  body * {
+    visibility: hidden !important;
+  }
+  
+  /* Make only the printable-area and its descendants visible */
+  #printable-area, #printable-area * {
+    visibility: visible !important;
+  }
+  
+  /* Reset document paper dimensions & position for print layout */
+  #printable-area {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 210mm !important; /* Standard A4 Width */
+    height: 297mm !important; /* Standard A4 Height */
+    max-width: none !important;
+    min-height: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 20mm !important; /* Generous printing margins */
+    margin: 0 !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Force background gradients, patterns, and colors to show in print */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* Hide headers and footers injected by the browser if desired */
+  @page {
+    size: auto;
+    margin: 0mm;
+  }
+}

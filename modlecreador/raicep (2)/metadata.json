@@ -1,0 +1,6 @@
+{
+  "name": "RAICEP",
+  "description": "Plataforma de Homologación Institucional y Certificación Profesional (RAICEP) con gestión de academias federadas y expedición de constancias.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

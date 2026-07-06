@@ -1,0 +1,6 @@
+{
+  "name": "RAICEP pdf ultimate",
+  "description": "Una aplicación de última generación para comprimir archivos PDF y convertir documentos entre múltiples formatos de manera automática, rápida y segura.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

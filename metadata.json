@@ -1,0 +1,11 @@
+{
+  "name": "DOCENT suite",
+  "description": "DOCENT suite - A professional workspace for recording, transcribing, and sharing interactive classes.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

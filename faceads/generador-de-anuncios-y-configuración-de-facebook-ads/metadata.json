@@ -1,0 +1,6 @@
+{
+  "name": "Generador de Anuncios y Configuración de Facebook Ads",
+  "description": "Crea copys promocionales de cursos para Facebook e identifica la segmentación y configuración ideal en Facebook Ads en tiempo real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

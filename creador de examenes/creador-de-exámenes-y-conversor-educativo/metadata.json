@@ -1,0 +1,6 @@
+{
+  "name": "Creador de Exámenes y Conversor Educativo",
+  "description": "Una suite completa impulsada por IA que une la generación de exámenes de última generación con múltiples variantes de presentación y un conversor multiformato de apuntes educativos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,50 @@
+{
+  "entities": {
+    "recording": {
+      "title": "Recording",
+      "description": "A recorded class lesson with metadata, chapters, and optional transcriptions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique recording ID" },
+        "name": { "type": "string", "description": "Name of the recorded class file" },
+        "size": { "type": "string", "description": "Size in megabytes" },
+        "date": { "type": "string", "description": "Date of the recording" },
+        "url": { "type": "string", "description": "Link to the video on Google Drive, YouTube, or temporary local url" },
+        "chapters": { "type": "array", "description": "List of chapter markers" },
+        "transcriptionText": { "type": "string", "description": "Clean transcription text" },
+        "srtText": { "type": "string", "description": "SRT format subtitles" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp" },
+        "userId": { "type": "string", "description": "Owner user UID" }
+      },
+      "required": ["id", "name", "size", "date", "url", "userId"]
+    },
+    "sharedClass": {
+      "title": "SharedClass",
+      "description": "An interactive lesson shared with students for synchronized play, chapter navigation, and transcriptions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique shared class ID" },
+        "name": { "type": "string", "description": "Name of the class" },
+        "url": { "type": "string", "description": "URL of the video (Google Drive direct or YouTube link)" },
+        "srtText": { "type": "string", "description": "SRT format subtitles" },
+        "chapters": { "type": "array", "description": "List of chapter markers" },
+        "teacherName": { "type": "string", "description": "Name of the teacher sharing the class" },
+        "subjectName": { "type": "string", "description": "School subject or assignment name" },
+        "date": { "type": "string", "description": "Date of the lesson" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp" },
+        "userId": { "type": "string", "description": "The UID of the teacher who created this" }
+      },
+      "required": ["id", "name", "url", "teacherName", "subjectName", "date", "userId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/recordings/{recordingId}": {
+      "schema": "recording",
+      "description": "User's recorded classes"
+    },
+    "/sharedClasses/{classId}": {
+      "schema": "sharedClass",
+      "description": "Shared lessons public to students"
+    }
+  }
+}
