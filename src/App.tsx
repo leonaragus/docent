@@ -117,11 +117,6 @@ function generateLocalTranscriptFallback(script: string, durationSec: number, ch
 
 function getSupportedMimeType() {
   const candidates = [
-    'video/mp4;codecs=h264,aac',
-    'video/mp4;codecs=h264,mp3',
-    'video/mp4',
-    'video/webm;codecs=h264,aac',
-    'video/webm;codecs=h264,opus',
     'video/webm;codecs=vp9,opus',
     'video/webm;codecs=vp8,opus',
     'video/webm'
@@ -131,7 +126,7 @@ function getSupportedMimeType() {
       return candidate;
     }
   }
-  return '';
+  return 'video/webm';
 }
 
 const reportCameraPermissionDebug = (hypothesisId: string, location: string, msg: string, data: Record<string, unknown> = {}) => {
@@ -1052,8 +1047,8 @@ export default function App() {
         const cameraVideo = cameraVideoRef.current;
         const screenVideo = screenVideoRef.current;
 
-        const hasCamera = !!(cameraStreamRef.current && cameraVideo && cameraVideo.readyState >= 2);
-        const hasScreen = !!(screenStreamRef.current && screenVideo && screenVideo.readyState >= 2);
+        const hasCamera = !!(cameraStreamRef.current && cameraVideo && cameraVideo.readyState >= 1 && cameraVideo.videoWidth > 0);
+        const hasScreen = !!(screenStreamRef.current && screenVideo && screenVideo.readyState >= 1 && screenVideo.videoWidth > 0);
 
         // Limpiar el canvas solo si es necesario, o pintar el fondo
         ctx.fillStyle = '#0f172a';
@@ -1074,7 +1069,12 @@ export default function App() {
             ctx.fillRect(0, 0, 1280, 720);
           }
 
-          if (hasCamera) {
+          if (hasCamera && cameraVideo) {
+            // Asegurar que el video de la cámara esté reproduciéndose para evitar congelamientos
+            if (cameraVideo.paused) {
+              cameraVideo.play().catch(() => {});
+            }
+
             // Dibujar PIP (Cámara sobre pantalla)
             const r = 80;
             const { x, y } = bubblePositionRef.current;
@@ -1105,8 +1105,11 @@ export default function App() {
             ctx.stroke();
             ctx.restore();
           }
-        } else if (hasCamera) {
+        } else if (hasCamera && cameraVideo) {
           // Solo cámara (Full Screen)
+          if (cameraVideo.paused) {
+            cameraVideo.play().catch(() => {});
+          }
           if (videoFilter !== 'none') {
             ctx.filter = videoFilter;
           }
