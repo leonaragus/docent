@@ -214,6 +214,8 @@ export default function App() {
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const [videoFilter, setVideoFilter] = useState('none');
+  const videoFilterRef = useRef('none');
+  const langRef = useRef(lang);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -1021,7 +1023,13 @@ export default function App() {
     }
   }, [systemVolume, recordSystemAudio]);
 
+  // Keep refs in sync with state so compositor can read them without being a dependency
+  useEffect(() => { videoFilterRef.current = videoFilter; }, [videoFilter]);
+  useEffect(() => { langRef.current = lang; }, [lang]);
+
   // Universal canvas compositor loop (Screen Share + Camera circular PIP bubble)
+  // CRITICAL: This runs ONCE and reads everything from refs. 
+  // It must NEVER restart during recording or captureStream() will lose frames.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1029,116 +1037,109 @@ export default function App() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    let isCompRunning = true;
-    let lastTime = 0;
-    const fpsInterval = 1000 / 25; // Bajamos a 25 FPS para máxima estabilidad en hardware variado
+    canvas.width = 1280;
+    canvas.height = 720;
 
-    const drawFrame = (time: number) => {
+    let isCompRunning = true;
+
+    const drawFrame = () => {
       if (!isCompRunning) return;
 
-      const elapsed = time - lastTime;
-      if (elapsed >= fpsInterval) {
-        lastTime = time - (elapsed % fpsInterval);
+      const cameraVideo = cameraVideoRef.current;
+      const screenVideo = screenVideoRef.current;
+      const currentFilter = videoFilterRef.current;
+      const currentLang = langRef.current;
 
-        // Asegurar resolución fija fuera de condiciones innecesarias
-        if (canvas.width !== 1280) canvas.width = 1280;
-        if (canvas.height !== 720) canvas.height = 720;
+      const hasCamera = !!(cameraStreamRef.current && cameraVideo && cameraVideo.readyState >= 1 && cameraVideo.videoWidth > 0);
+      const hasScreen = !!(screenStreamRef.current && screenVideo && screenVideo.readyState >= 1 && screenVideo.videoWidth > 0);
 
-        const cameraVideo = cameraVideoRef.current;
-        const screenVideo = screenVideoRef.current;
+      // Clear canvas
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, 1280, 720);
 
-        const hasCamera = !!(cameraStreamRef.current && cameraVideo && cameraVideo.readyState >= 1 && cameraVideo.videoWidth > 0);
-        const hasScreen = !!(screenStreamRef.current && screenVideo && screenVideo.readyState >= 1 && screenVideo.videoWidth > 0);
+      if (hasScreen && screenVideo) {
+        // Force play if browser paused it
+        if (screenVideo.paused) {
+          screenVideo.play().catch(() => {});
+        }
 
-        // Limpiar el canvas solo si es necesario, o pintar el fondo
-        ctx.fillStyle = '#0f172a';
-        ctx.fillRect(0, 0, 1280, 720);
+        // Draw shared screen as full background
+        try {
+          ctx.drawImage(screenVideo, 0, 0, 1280, 720);
+        } catch (e) {
+          ctx.fillStyle = '#000000';
+          ctx.fillRect(0, 0, 1280, 720);
+        }
 
-        if (hasScreen && screenVideo) {
-          // Asegurar que el video de pantalla esté reproduciéndose
-          if (screenVideo.paused) {
-            screenVideo.play().catch(() => {});
-          }
-          
-          // Dibujar pantalla completa primero (Base)
-          try {
-            ctx.drawImage(screenVideo, 0, 0, 1280, 720);
-          } catch (e) {
-            // Fallback si drawImage falla por readyState momentáneo
-            ctx.fillStyle = '#000000';
-            ctx.fillRect(0, 0, 1280, 720);
-          }
-
-          if (hasCamera && cameraVideo) {
-            // Asegurar que el video de la cámara esté reproduciéndose para evitar congelamientos
-            if (cameraVideo.paused) {
-              cameraVideo.play().catch(() => {});
-            }
-
-            // Dibujar PIP (Cámara sobre pantalla)
-            const r = 80;
-            const { x, y } = bubblePositionRef.current;
-
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(x, y, r, 0, Math.PI * 2);
-            ctx.clip();
-
-            const vW = cameraVideo.videoWidth;
-            const vH = cameraVideo.videoHeight;
-            const minSize = Math.min(vW, vH);
-            const sx = (vW - minSize) / 2;
-            const sy = (vH - minSize) / 2;
-
-            if (videoFilter !== 'none') {
-              ctx.filter = videoFilter;
-            }
-            ctx.drawImage(cameraVideo, sx, sy, minSize, minSize, x - r, y - r, r * 2, r * 2);
-            ctx.restore();
-
-            // Borde premium para la burbuja
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(x, y, r, 0, Math.PI * 2);
-            ctx.lineWidth = 4;
-            ctx.strokeStyle = '#6366f1';
-            ctx.stroke();
-            ctx.restore();
-          }
-        } else if (hasCamera && cameraVideo) {
-          // Solo cámara (Full Screen)
+        // Draw camera PIP bubble on top of screen
+        if (hasCamera && cameraVideo) {
           if (cameraVideo.paused) {
             cameraVideo.play().catch(() => {});
           }
-          if (videoFilter !== 'none') {
-            ctx.filter = videoFilter;
+
+          const r = 80;
+          const { x, y } = bubblePositionRef.current;
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.clip();
+
+          const vW = cameraVideo.videoWidth;
+          const vH = cameraVideo.videoHeight;
+          const minSize = Math.min(vW, vH);
+          const sx = (vW - minSize) / 2;
+          const sy = (vH - minSize) / 2;
+
+          if (currentFilter !== 'none') {
+            ctx.filter = currentFilter;
           }
-          ctx.drawImage(cameraVideo, 0, 0, 1280, 720);
+          ctx.drawImage(cameraVideo, sx, sy, minSize, minSize, x - r, y - r, r * 2, r * 2);
           ctx.filter = 'none';
-        } else {
-          // Pantalla de espera (DOCENT STUDIO)
-          ctx.fillStyle = '#1e1b4b';
-          ctx.fillRect(0, 0, 1280, 720);
-          ctx.font = 'bold 40px sans-serif';
-          ctx.fillStyle = '#ffffff';
-          ctx.textAlign = 'center';
-          ctx.fillText(lang === 'en' ? 'DOCENT STUDIO' : 'ESTUDIO DOCENT', 640, 340);
-          ctx.font = '20px sans-serif';
-          ctx.fillStyle = '#818cf8';
-          ctx.fillText(lang === 'en' ? 'Connect camera or share screen to start' : 'Conecta la cámara o comparte pantalla para empezar', 640, 390);
+          ctx.restore();
+
+          // Border
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = '#6366f1';
+          ctx.stroke();
+          ctx.restore();
         }
+      } else if (hasCamera && cameraVideo) {
+        // Camera only (Full Screen)
+        if (cameraVideo.paused) {
+          cameraVideo.play().catch(() => {});
+        }
+        if (currentFilter !== 'none') {
+          ctx.filter = currentFilter;
+        }
+        ctx.drawImage(cameraVideo, 0, 0, 1280, 720);
+        ctx.filter = 'none';
+      } else {
+        // Waiting screen
+        ctx.fillStyle = '#1e1b4b';
+        ctx.fillRect(0, 0, 1280, 720);
+        ctx.font = 'bold 40px sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.fillText(currentLang === 'en' ? 'DOCENT STUDIO' : 'ESTUDIO DOCENT', 640, 340);
+        ctx.font = '20px sans-serif';
+        ctx.fillStyle = '#818cf8';
+        ctx.fillText(currentLang === 'en' ? 'Connect camera or share screen to start' : 'Conecta la cámara o comparte pantalla para empezar', 640, 390);
       }
 
       animationFrameRef.current = requestAnimationFrame(drawFrame);
     };
 
-    drawFrame(performance.now());
+    animationFrameRef.current = requestAnimationFrame(drawFrame);
 
     return () => {
       isCompRunning = false;
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
-  }, [cameraStream, screenStream, videoFilter, lang]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   
   const toggleMute = () => {
@@ -1842,23 +1843,23 @@ export default function App() {
               {/* Video Preview con Canvas y Controles Flotantes tipo Zoom */}
               <div ref={recordingContainerRef} className="bg-black aspect-video rounded-3xl overflow-hidden relative shadow-2xl border border-slate-800 flex items-center justify-center group">
                 
-                {/* Invisible helper video elements rendered inside container (stacked behind canvas) to prevent browser throttling */}
-                <div className="pointer-events-none absolute" style={{ top: 0, left: 0, width: '160px', height: '120px', overflow: 'hidden', zIndex: 1, opacity: 0.01 }}>
-                  <video
-                    ref={cameraVideoRef}
-                    autoPlay
-                    muted
-                    playsInline
-                    style={{ width: '160px', height: '120px', objectFit: 'cover' }}
-                  />
-                  <video
-                    ref={screenVideoRef}
-                    autoPlay
-                    muted
-                    playsInline
-                    style={{ width: '160px', height: '120px', objectFit: 'contain' }}
-                  />
-                </div>
+                {/* Helper video elements - each MUST be in its own container to avoid overflow clipping */}
+                <video
+                  ref={cameraVideoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="pointer-events-none absolute"
+                  style={{ top: 0, left: 0, width: '1px', height: '1px', zIndex: 0, opacity: 0.001 }}
+                />
+                <video
+                  ref={screenVideoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="pointer-events-none absolute"
+                  style={{ top: 0, left: '2px', width: '1px', height: '1px', zIndex: 0, opacity: 0.001 }}
+                />
 
                 <canvas 
                   ref={canvasRef} 
