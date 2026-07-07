@@ -1053,7 +1053,7 @@ export default function App() {
         const screenVideo = screenVideoRef.current;
 
         const hasCamera = !!(cameraStreamRef.current && cameraVideo && cameraVideo.readyState >= 2);
-        const hasScreen = !!(screenStreamRef.current && screenVideo && (screenVideo.readyState >= 1 || screenVideo.srcObject));
+        const hasScreen = !!(screenStreamRef.current && screenVideo && screenVideo.readyState >= 2);
 
         // Limpiar el canvas solo si es necesario, o pintar el fondo
         ctx.fillStyle = '#0f172a';
@@ -1839,21 +1839,21 @@ export default function App() {
               {/* Video Preview con Canvas y Controles Flotantes tipo Zoom */}
               <div ref={recordingContainerRef} className="bg-black aspect-video rounded-3xl overflow-hidden relative shadow-2xl border border-slate-800 flex items-center justify-center group">
                 
-                {/* Invisible helper video elements rendered off-screen at active size to prevent browser throttling */}
-                <div className="pointer-events-none" style={{ position: 'absolute', left: '-9999px', top: '-9999px', width: '320px', height: '240px', overflow: 'hidden' }}>
+                {/* Invisible helper video elements rendered inside container (stacked behind canvas) to prevent browser throttling */}
+                <div className="pointer-events-none absolute" style={{ top: 0, left: 0, width: '160px', height: '120px', overflow: 'hidden', zIndex: 1, opacity: 0.01 }}>
                   <video
                     ref={cameraVideoRef}
                     autoPlay
                     muted
                     playsInline
-                    style={{ width: '320px', height: '240px', objectFit: 'cover' }}
+                    style={{ width: '160px', height: '120px', objectFit: 'cover' }}
                   />
                   <video
                     ref={screenVideoRef}
                     autoPlay
                     muted
                     playsInline
-                    style={{ width: '320px', height: '240px', objectFit: 'contain' }}
+                    style={{ width: '160px', height: '120px', objectFit: 'contain' }}
                   />
                 </div>
 
