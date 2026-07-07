@@ -1028,9 +1028,11 @@ export default function App() {
   useEffect(() => { langRef.current = lang; }, [lang]);
 
   // Universal canvas compositor loop (Screen Share + Camera circular PIP bubble)
-  // CRITICAL: This runs ONCE and reads everything from refs. 
-  // It must NEVER restart during recording or captureStream() will lose frames.
+  // Depends on currentView to start when studio canvas appears.
+  // Reads streams from REFS so it does NOT restart when screen share starts/stops during recording.
   useEffect(() => {
+    if (currentView !== 'studio') return;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -1139,7 +1141,7 @@ export default function App() {
       isCompRunning = false;
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentView]); // Only restarts when navigating views, never during recording
 
   
   const toggleMute = () => {
