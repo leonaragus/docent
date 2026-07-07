@@ -2053,24 +2053,6 @@ export default function App() {
             </div>
 
             <div className="space-y-6">
-              {/* AI Assistant */}
-              <AIAssistant 
-                lang={lang}
-                onLoadScript={(script) => {
-                  localStorage.setItem('docent_teleprompter_text', script);
-                  teleprompterScriptRef.current = script;
-                  setTeleprompterScript(script);
-                  toast.success(lang === 'en' ? 'Script loaded in teleprompter!' : '¡Guion cargado en el teleprompter!');
-                  setTimeout(() => {
-                    document.getElementById('teleprompter')?.scrollIntoView({ behavior: 'smooth' });
-                  }, 300);
-                }}
-                onLoadChapters={(chapters) => {
-                  setSuggestedChapters(chapters);
-                  toast.success(lang === 'en' ? 'Chapters loaded!' : '¡Capítulos cargados!');
-                }}
-              />
-
               {/* Recording Settings */}
               <RecordingSettings
                 devices={devices}
@@ -2091,6 +2073,24 @@ export default function App() {
                 requestMicPermission={requestMicPermission}
                 profilePhoto={profilePhoto}
                 setProfilePhoto={setProfilePhoto}
+              />
+
+              {/* AI Assistant */}
+              <AIAssistant 
+                lang={lang}
+                onLoadScript={(script) => {
+                  localStorage.setItem('docent_teleprompter_text', script);
+                  teleprompterScriptRef.current = script;
+                  setTeleprompterScript(script);
+                  toast.success(lang === 'en' ? 'Script loaded in teleprompter!' : '¡Guion cargado en el teleprompter!');
+                  setTimeout(() => {
+                    document.getElementById('teleprompter')?.scrollIntoView({ behavior: 'smooth' });
+                  }, 300);
+                }}
+                onLoadChapters={(chapters) => {
+                  setSuggestedChapters(chapters);
+                  toast.success(lang === 'en' ? 'Chapters loaded!' : '¡Capítulos cargados!');
+                }}
               />
             </div>
           </div>

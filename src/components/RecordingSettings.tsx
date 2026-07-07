@@ -101,7 +101,7 @@ export function RecordingSettings({
                 <button 
                   onClick={() => setProfilePhoto(null)}
                   disabled={isRecording}
-                  className="absolute -top-1 -right-1 bg-red-500 hover:bg-red-400 rounded-full p-0.5 text-white shadow-md disabled:opacity-50"
+                  className="absolute -top-1 -right-1 bg-red-500 hover:bg-red-400 rounded-full p-0.5 text-white shadow-md disabled:opacity-50 cursor-pointer transition-colors"
                   title="Eliminar foto"
                 >
                   <X className="w-3 h-3" />
@@ -111,17 +111,39 @@ export function RecordingSettings({
             
             <div className="flex-1">
               <p className="text-[10px] text-slate-400 mb-2 leading-tight">Esta imagen se mostrará en lugar de la cámara en vivo cuando compartas pantalla, evitando problemas de rendimiento.</p>
-              <label className={`inline-flex items-center gap-2 px-3 py-1.5 rounded bg-slate-800 border border-slate-700 text-xs font-bold uppercase tracking-tight text-slate-300 hover:text-white hover:bg-slate-700 transition-colors ${isRecording ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
-                <Upload className="w-3 h-3" />
-                SUBIR FOTO
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  className="hidden" 
-                  onChange={handlePhotoUpload}
-                  disabled={isRecording}
-                />
-              </label>
+              
+              {/* Presets and Upload in one row */}
+              <div className="flex flex-wrap items-center gap-2">
+                <label className={`inline-flex items-center gap-2 px-3 py-1.5 rounded bg-slate-800 border border-slate-700 text-xs font-bold uppercase tracking-tight text-slate-300 hover:text-white hover:bg-slate-700 transition-colors ${isRecording ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                  <Upload className="w-3 h-3" />
+                  SUBIR FOTO
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    className="hidden" 
+                    onChange={handlePhotoUpload}
+                    disabled={isRecording}
+                  />
+                </label>
+                
+                <span className="text-[10px] text-slate-500 uppercase font-bold mx-1">O ELIGE:</span>
+                
+                {/* 3 Presets */}
+                {['Felix', 'Aneka', 'Jocelyn'].map(seed => {
+                  const url = `https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}&backgroundColor=c0aede,b6e3f4,ffdfbf`;
+                  return (
+                    <button
+                      key={seed}
+                      disabled={isRecording}
+                      onClick={() => setProfilePhoto(url)}
+                      className={`w-8 h-8 rounded-full border-2 overflow-hidden transition-all hover:scale-110 cursor-pointer ${profilePhoto === url ? 'border-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]' : 'border-slate-700 hover:border-slate-500'}`}
+                      title={`Avatar ${seed}`}
+                    >
+                      <img src={url} alt={seed} className="w-full h-full object-cover" />
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
