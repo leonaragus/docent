@@ -771,45 +771,100 @@ export default function App() {
   const requestScreenStream = async () => {
     // #region debug-point C:screen-request-before
     reportCameraPermissionDebug('C', 'App.tsx:requestScreenStream', 'requesting screen permissions', {
-      video: true
+      video: true,
+      audio: recordSystemAudio
     });
     // #endregion
-    try {
-      // MÁXIMA COMPATIBILIDAD: Quitamos CUALQUIER constraint ideal que pueda causar Timeouts en hardware limitado
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: false
-      });
+    
+    let stream: MediaStream | null = null;
+    let systemAudioAttemptFailed = false;
 
-      // #region debug-point C:screen-request-success
-      reportCameraPermissionDebug('C', 'App.tsx:requestScreenStream', 'screen permissions granted', {
-        videoTracks: stream.getVideoTracks().length
-      });
-      // #endregion
-      const [screenTrack] = stream.getVideoTracks();
-      if (screenTrack) {
-        screenTrack.onended = () => {
-          stopStream(screenStreamRef.current);
-          syncScreenStream(null);
-          if (activeStreamRef.current === stream) {
-            syncActiveStream(cameraStreamRef.current || null);
+    // Intento 1: Con audio del sistema si está habilitado y resolución según calidad
+    if (recordSystemAudio) {
+      try {
+        const constraints = {
+          video: {
+            width: { ideal: videoQuality === 'high' ? 1920 : 1280 },
+            height: { ideal: videoQuality === 'high' ? 1080 : 720 },
+            frameRate: { ideal: videoQuality === 'high' ? 60 : 30 }
+          },
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
           }
         };
+        stream = await navigator.mediaDevices.getDisplayMedia(constraints);
+      } catch (err) {
+        console.warn("Intento 1 de compartir pantalla con audio falló, reintentando sin audio...", err);
+        systemAudioAttemptFailed = true;
       }
-      syncScreenStream(stream);
-      syncActiveStream(stream);
-      return stream;
-    } catch (error: any) {
-      console.error('Error al solicitar permisos de pantalla:', error);
-      // #region debug-point C:screen-request-error
-      reportCameraPermissionDebug('C', 'App.tsx:requestScreenStream', 'screen permission request failed', {
-        name: error?.name,
-        message: error?.message,
-        code: error?.code
-      });
-      // #endregion
-      throw error;
     }
+
+    // Intento 2: Con resolución según calidad pero sin audio
+    if (!stream) {
+      try {
+        const constraints = {
+          video: {
+            width: { ideal: videoQuality === 'high' ? 1920 : 1280 },
+            height: { ideal: videoQuality === 'high' ? 1080 : 720 },
+            frameRate: { ideal: videoQuality === 'high' ? 60 : 30 }
+          },
+          audio: false
+        };
+        stream = await navigator.mediaDevices.getDisplayMedia(constraints);
+      } catch (err) {
+        console.warn("Intento 2 de compartir pantalla con resolución falló, reintentando modo básico...", err);
+      }
+    }
+
+    // Intento 3: Modo ultra compatible (sin restricciones y sin audio)
+    if (!stream) {
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: false
+        });
+      } catch (err: any) {
+        console.error('Error final al solicitar permisos de pantalla:', err);
+        // #region debug-point C:screen-request-error
+        reportCameraPermissionDebug('C', 'App.tsx:requestScreenStream', 'screen permission request failed', {
+          name: err?.name,
+          message: err?.message,
+          code: err?.code
+        });
+        // #endregion
+        throw err;
+      }
+    }
+
+    if (systemAudioAttemptFailed || (recordSystemAudio && stream.getAudioTracks().length === 0)) {
+      setSystemAudioMissingWarning(true);
+    } else {
+      setSystemAudioMissingWarning(false);
+    }
+
+    // #region debug-point C:screen-request-success
+    reportCameraPermissionDebug('C', 'App.tsx:requestScreenStream', 'screen permissions granted', {
+      videoTracks: stream.getVideoTracks().length,
+      audioTracks: stream.getAudioTracks().length
+    });
+    // #endregion
+
+    const [screenTrack] = stream.getVideoTracks();
+    if (screenTrack) {
+      screenTrack.onended = () => {
+        stopStream(screenStreamRef.current);
+        syncScreenStream(null);
+        if (activeStreamRef.current === stream) {
+          syncActiveStream(cameraStreamRef.current || null);
+        }
+      };
+    }
+    
+    syncScreenStream(stream);
+    syncActiveStream(stream);
+    return stream;
   };
 
   const autoDownloadFiles = (recordingName: string, blob: Blob, srtText: string, cleanText: string) => {
@@ -1147,11 +1202,6 @@ export default function App() {
     } else {
       try {
         await requestScreenStream();
-        if (recordingContainerRef.current) {
-          recordingContainerRef.current.requestFullscreen().catch(err => {
-            console.error('Fullscreen error on share:', err);
-          });
-        }
       } catch (e: any) {
         console.error('Screen error:', e);
          // #region debug-point C:screen-request-error
