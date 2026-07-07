@@ -1,4 +1,4 @@
-import { Mic, Volume2, Video, Settings, AlertTriangle } from 'lucide-react';
+import { Mic, Volume2, Video, Settings, AlertTriangle, Image as ImageIcon, Upload, X } from 'lucide-react';
 
 interface RecordingSettingsProps {
   devices: MediaDeviceInfo[];
@@ -17,6 +17,8 @@ interface RecordingSettingsProps {
   isRecording: boolean;
   systemAudioMissingWarning: boolean;
   requestMicPermission: () => Promise<boolean>;
+  profilePhoto: string | null;
+  setProfilePhoto: (url: string | null) => void;
 }
 
 export function RecordingSettings({
@@ -35,8 +37,22 @@ export function RecordingSettings({
   setVideoQuality,
   isRecording,
   systemAudioMissingWarning,
-  requestMicPermission
+  requestMicPermission,
+  profilePhoto,
+  setProfilePhoto
 }: RecordingSettingsProps) {
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setProfilePhoto(event.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   return (
     <div className="bg-slate-900/50 backdrop-blur-md rounded-xl p-6 border border-slate-800 shadow-2xl space-y-6">
       <div className="flex items-center justify-between border-b border-slate-800 pb-4">
@@ -64,6 +80,52 @@ export function RecordingSettings({
       )}
 
       <div className="space-y-5">
+        {/* Profile Photo PIP */}
+        <div className="space-y-3 bg-slate-950 border border-slate-800 p-4 rounded-lg">
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-mono font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+              <ImageIcon className="w-3.5 h-3.5 text-slate-500" /> FOTO DE PERFIL PIP (PRESENTACIÓN)
+            </label>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <div className="relative shrink-0">
+              <div className="w-14 h-14 rounded-full overflow-hidden bg-slate-800 border-2 border-slate-700 flex items-center justify-center">
+                {profilePhoto ? (
+                  <img src={profilePhoto} alt="PIP Profile" className="w-full h-full object-cover" />
+                ) : (
+                  <ImageIcon className="w-6 h-6 text-slate-600" />
+                )}
+              </div>
+              {profilePhoto && (
+                <button 
+                  onClick={() => setProfilePhoto(null)}
+                  disabled={isRecording}
+                  className="absolute -top-1 -right-1 bg-red-500 hover:bg-red-400 rounded-full p-0.5 text-white shadow-md disabled:opacity-50"
+                  title="Eliminar foto"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+            
+            <div className="flex-1">
+              <p className="text-[10px] text-slate-400 mb-2 leading-tight">Esta imagen se mostrará en lugar de la cámara en vivo cuando compartas pantalla, evitando problemas de rendimiento.</p>
+              <label className={`inline-flex items-center gap-2 px-3 py-1.5 rounded bg-slate-800 border border-slate-700 text-xs font-bold uppercase tracking-tight text-slate-300 hover:text-white hover:bg-slate-700 transition-colors ${isRecording ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                <Upload className="w-3 h-3" />
+                SUBIR FOTO
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  className="hidden" 
+                  onChange={handlePhotoUpload}
+                  disabled={isRecording}
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+
         {/* Quality Config */}
         <div className="space-y-2">
           <label className="text-[11px] font-mono font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">

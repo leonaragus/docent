@@ -216,6 +216,20 @@ export default function App() {
   const [videoFilter, setVideoFilter] = useState('none');
   const videoFilterRef = useRef('none');
   const langRef = useRef(lang);
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const profileImageObjRef = useRef<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    if (profilePhoto) {
+      const img = new Image();
+      img.src = profilePhoto;
+      img.onload = () => {
+        profileImageObjRef.current = img;
+      };
+    } else {
+      profileImageObjRef.current = null;
+    }
+  }, [profilePhoto]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -1073,42 +1087,42 @@ export default function App() {
           ctx.fillRect(0, 0, 1280, 720);
         }
 
-        // Draw camera PIP bubble on top of screen
-        if (hasCamera && cameraVideo) {
-          if (cameraVideo.paused) {
-            cameraVideo.play().catch(() => {});
-          }
+        // Draw profile photo PIP bubble on top of screen instead of live camera to save resources
+        const r = 80;
+        const { x, y } = bubblePositionRef.current;
 
-          const r = 80;
-          const { x, y } = bubblePositionRef.current;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.clip();
 
-          ctx.save();
-          ctx.beginPath();
-          ctx.arc(x, y, r, 0, Math.PI * 2);
-          ctx.clip();
-
-          const vW = cameraVideo.videoWidth;
-          const vH = cameraVideo.videoHeight;
-          const minSize = Math.min(vW, vH);
-          const sx = (vW - minSize) / 2;
-          const sy = (vH - minSize) / 2;
-
-          if (currentFilter !== 'none') {
-            ctx.filter = currentFilter;
-          }
-          ctx.drawImage(cameraVideo, sx, sy, minSize, minSize, x - r, y - r, r * 2, r * 2);
-          ctx.filter = 'none';
-          ctx.restore();
-
-          // Border
-          ctx.save();
-          ctx.beginPath();
-          ctx.arc(x, y, r, 0, Math.PI * 2);
-          ctx.lineWidth = 4;
-          ctx.strokeStyle = '#6366f1';
-          ctx.stroke();
-          ctx.restore();
+        const profileImg = profileImageObjRef.current;
+        if (profileImg) {
+          const imgW = profileImg.width;
+          const imgH = profileImg.height;
+          const minSize = Math.min(imgW, imgH);
+          const sx = (imgW - minSize) / 2;
+          const sy = (imgH - minSize) / 2;
+          ctx.drawImage(profileImg, sx, sy, minSize, minSize, x - r, y - r, r * 2, r * 2);
+        } else {
+          ctx.fillStyle = '#334155';
+          ctx.fillRect(x - r, y - r, r * 2, r * 2);
+          ctx.fillStyle = '#94a3b8';
+          ctx.font = 'bold 40px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('PIP', x, y);
         }
+        ctx.restore();
+
+        // Border
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#6366f1';
+        ctx.stroke();
+        ctx.restore();
       } else if (hasCamera && cameraVideo) {
         // Camera only (Full Screen)
         if (cameraVideo.paused) {
@@ -2075,6 +2089,8 @@ export default function App() {
                 isRecording={isRecording}
                 systemAudioMissingWarning={systemAudioMissingWarning}
                 requestMicPermission={requestMicPermission}
+                profilePhoto={profilePhoto}
+                setProfilePhoto={setProfilePhoto}
               />
             </div>
           </div>
