@@ -1,0 +1,6 @@
+{
+  "name": "Grabador de Clases Web",
+  "description": "Herramienta profesional, sencilla y sin lag para grabar clases con audio de micrófono y sistema.",
+  "requestFramePermissions": ["microphone", "camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

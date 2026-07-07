@@ -1,6 +1,6 @@
 import { useReactMediaRecorder } from 'react-media-recorder-2';
 import { motion, AnimatePresence } from 'motion/react';
-import { useState, useRef, useEffect, FormEvent } from 'react';
+import { useState, useRef, useEffect, FormEvent, useCallback } from 'react';
 import RecordRTC from 'recordrtc';
 import { 
   Play, StopCircle, Download, Cloud, ChevronRight, Sparkles, 
@@ -24,6 +24,7 @@ import DocentCampus from './components/Campus/DocentCampus';
 import DocentAdmin from './components/Admin/DocentAdmin';
 import SubscriptionModal from './components/SubscriptionModal';
 import { DriveTutorialModal } from './components/DriveTutorialModal';
+import { RecordingSettings } from './components/RecordingSettings';
 import { Recording, ChapterMarker } from './types';
 import { 
   supabase, 
@@ -114,6 +115,25 @@ function generateLocalTranscriptFallback(script: string, durationSec: number, ch
   };
 }
 
+function getSupportedMimeType() {
+  const candidates = [
+    'video/mp4;codecs=h264,aac',
+    'video/mp4;codecs=h264,mp3',
+    'video/mp4',
+    'video/webm;codecs=h264,aac',
+    'video/webm;codecs=h264,opus',
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm'
+  ];
+  for (const candidate of candidates) {
+    if (MediaRecorder.isTypeSupported(candidate)) {
+      return candidate;
+    }
+  }
+  return '';
+}
+
 const reportCameraPermissionDebug = (hypothesisId: string, location: string, msg: string, data: Record<string, unknown> = {}) => {
   // #region debug-point permission-flow:reporter
   fetch("http://127.0.0.1:7777/event", {
@@ -139,6 +159,16 @@ export default function App() {
   const [currentView, setCurrentView] = useState<SuiteView>('nexus');
   const [showDriveTutorial, setShowDriveTutorial] = useState(false);
   const [oracleTranscriptNotif, setOracleTranscriptNotif] = useState<string | null>(null);
+
+  // Recording Settings states (fused from useRecorder)
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedMicId, setSelectedMicId] = useState<string>('');
+  const [recordMic, setRecordMic] = useState(true);
+  const [recordSystemAudio, setRecordSystemAudio] = useState(true);
+  const [micVolume, setMicVolume] = useState(1.0);
+  const [systemVolume, setSystemVolume] = useState(1.0);
+  const [videoQuality, setVideoQuality] = useState<'high' | 'standard'>('high');
+  const [systemAudioMissingWarning, setSystemAudioMissingWarning] = useState(false);
 
   const handleLanguageChange = (newLang: 'en' | 'es') => {
     setLang(newLang);
@@ -550,6 +580,8 @@ export default function App() {
   const audioDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const cameraAudioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const screenAudioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const micGainNodeRef = useRef<GainNode | null>(null);
+  const systemGainNodeRef = useRef<GainNode | null>(null);
 
   // Web Speech API refs & states
   const liveTranscriptEntriesRef = useRef<{id: number; start: number; end: number; text: string}[]>([]);
@@ -567,6 +599,42 @@ export default function App() {
       setSpeechAPIAvailable(false);
     }
   }, []);
+
+  // Load available microphone devices
+  const loadDevices = useCallback(async () => {
+    try {
+      const devicesList = await navigator.mediaDevices.enumerateDevices();
+      const audioInputs = devicesList.filter(device => device.kind === 'audioinput');
+      setDevices(audioInputs);
+      if (audioInputs.length > 0 && !selectedMicId) {
+        setSelectedMicId(audioInputs[0].deviceId);
+      }
+    } catch (err) {
+      console.error('Error listing devices:', err);
+    }
+  }, [selectedMicId]);
+
+  // Request mic permission to get labels
+  const requestMicPermission = useCallback(async () => {
+    try {
+      const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      tempStream.getTracks().forEach(track => track.stop());
+      await loadDevices();
+      return true;
+    } catch (err) {
+      console.warn('Microphone permission denied or not available:', err);
+      return false;
+    }
+  }, [loadDevices]);
+
+  // Load devices on mount and listen to device changes
+  useEffect(() => {
+    loadDevices();
+    navigator.mediaDevices.addEventListener('devicechange', loadDevices);
+    return () => {
+      navigator.mediaDevices.removeEventListener('devicechange', loadDevices);
+    };
+  }, [loadDevices]);
 
   useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -751,8 +819,9 @@ export default function App() {
     const videoUrl = URL.createObjectURL(blob);
     const aVideo = document.createElement('a');
     aVideo.href = videoUrl;
-    // Usamos webm que es el formato nativo de RecordRTC en el navegador para evitar corrupción
-    aVideo.download = `${baseName}.webm`;
+    // Usamos el formato dinámico del blob (MP4 o WebM) para la extensión del archivo
+    const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+    aVideo.download = `${baseName}.${ext}`;
     aVideo.click();
     
     if (srtText) {
@@ -827,47 +896,80 @@ export default function App() {
       const dest = audioDestinationRef.current;
       if (!ctx || !dest) return;
 
+      // Disconnect previous nodes to avoid duplicate connections
+      if (cameraAudioSourceRef.current) {
+        cameraAudioSourceRef.current.disconnect();
+        cameraAudioSourceRef.current = null;
+      }
+      if (micGainNodeRef.current) {
+        micGainNodeRef.current.disconnect();
+        micGainNodeRef.current = null;
+      }
+
+      if (screenAudioSourceRef.current) {
+        screenAudioSourceRef.current.disconnect();
+        screenAudioSourceRef.current = null;
+      }
+      if (systemGainNodeRef.current) {
+        systemGainNodeRef.current.disconnect();
+        systemGainNodeRef.current = null;
+      }
+
       // Add Analyser for volume meter
       if (!analyserRef.current) {
         analyserRef.current = ctx.createAnalyser();
         analyserRef.current.fftSize = 32;
-        dest.stream.getAudioTracks().forEach(() => {
-          // Connect dest to analyser (or source to analyser)
-          // We'll connect the destination stream to a dummy source to analyze it
-        });
       }
 
-      // Sync camera audio source
+      // Sync camera/microphone audio source with GainNode
       if (cameraStream && cameraStream.getAudioTracks().length > 0) {
-        if (!cameraAudioSourceRef.current) {
-          cameraAudioSourceRef.current = ctx.createMediaStreamSource(cameraStream);
-          cameraAudioSourceRef.current.connect(dest);
-          if (analyserRef.current) cameraAudioSourceRef.current.connect(analyserRef.current);
+        const source = ctx.createMediaStreamSource(cameraStream);
+        const gainNode = ctx.createGain();
+        gainNode.gain.value = recordMic ? micVolume : 0;
+        
+        source.connect(gainNode);
+        gainNode.connect(dest);
+        if (analyserRef.current) {
+          gainNode.connect(analyserRef.current);
         }
-      } else {
-        if (cameraAudioSourceRef.current) {
-          cameraAudioSourceRef.current.disconnect();
-          cameraAudioSourceRef.current = null;
-        }
+
+        cameraAudioSourceRef.current = source;
+        micGainNodeRef.current = gainNode;
       }
 
-      // Sync screen share audio source (e.g. system audio if shared)
+      // Sync screen share audio source (system audio) with GainNode
       if (screenStream && screenStream.getAudioTracks().length > 0) {
-        if (!screenAudioSourceRef.current) {
-          screenAudioSourceRef.current = ctx.createMediaStreamSource(screenStream);
-          screenAudioSourceRef.current.connect(dest);
-          if (analyserRef.current) screenAudioSourceRef.current.connect(analyserRef.current);
+        const source = ctx.createMediaStreamSource(screenStream);
+        const gainNode = ctx.createGain();
+        gainNode.gain.value = recordSystemAudio ? systemVolume : 0;
+
+        source.connect(gainNode);
+        gainNode.connect(dest);
+        if (analyserRef.current) {
+          gainNode.connect(analyserRef.current);
         }
-      } else {
-        if (screenAudioSourceRef.current) {
-          screenAudioSourceRef.current.disconnect();
-          screenAudioSourceRef.current = null;
-        }
+
+        screenAudioSourceRef.current = source;
+        systemGainNodeRef.current = gainNode;
       }
     } catch (err) {
       console.warn("Audio mixer update error:", err);
     }
   }, [cameraStream, screenStream]);
+
+  // Dynamically update mic gain
+  useEffect(() => {
+    if (micGainNodeRef.current) {
+      micGainNodeRef.current.gain.value = recordMic ? micVolume : 0;
+    }
+  }, [micVolume, recordMic]);
+
+  // Dynamically update system gain
+  useEffect(() => {
+    if (systemGainNodeRef.current) {
+      systemGainNodeRef.current.gain.value = recordSystemAudio ? systemVolume : 0;
+    }
+  }, [systemVolume, recordSystemAudio]);
 
   // Universal canvas compositor loop (Screen Share + Camera circular PIP bubble)
   useEffect(() => {
@@ -1175,15 +1277,20 @@ export default function App() {
         });
       }
 
-      // Configuración de SDK Profesional para grabación local
-      recordRtcRef.current = new RecordRTC(canvasStream, {
+      // Configuración de SDK Profesional para grabación local con MimeType dinámico y calidad ajustable
+      const mime = getSupportedMimeType();
+      const recordRtcOptions: any = {
         type: 'video',
-        mimeType: 'video/webm;codecs=vp9',
-        bitsPerSecond: 4000000, // Aumentado a 4Mbps para calidad Pro
-        frameInterval: 30,
+        bitsPerSecond: videoQuality === 'high' ? 5000000 : 2500000,
+        frameInterval: videoQuality === 'high' ? 15 : 30,
         disableLogs: false,
-        autoWriteToDisk: false // Manejamos nosotros el blob para mayor control
-      });
+        autoWriteToDisk: false
+      };
+      if (mime) {
+        recordRtcOptions.mimeType = mime;
+      }
+
+      recordRtcRef.current = new RecordRTC(canvasStream, recordRtcOptions);
 
       recordRtcRef.current.startRecording();
       
@@ -1242,7 +1349,9 @@ export default function App() {
     const finalDurationSecs = Math.max(3, Math.floor((Date.now() - startTimeRef.current) / 1000));
     const fileMB = (finalBlob.size / (1024 * 1024)).toFixed(1);
     const recordingId = Math.random().toString(36).substr(2, 9);
-    const recordingName = `Clase_${new Date().toLocaleDateString().replace(/\//g, '-')}_${new Date().toLocaleTimeString().replace(/:/g, '-')}.webm`;
+    const finalMimeType = finalBlob.type || 'video/webm';
+    const extension = finalMimeType.includes('mp4') ? 'mp4' : 'webm';
+    const recordingName = `Clase_${new Date().toLocaleDateString().replace(/\//g, '-')}_${new Date().toLocaleTimeString().replace(/:/g, '-')}.${extension}`;
 
     // 1. GENERAR TRANSCRIPCIÓN (FALLBACK O LIVE)
     let finalSrtText = "";
@@ -1680,21 +1789,21 @@ export default function App() {
               {/* Video Preview con Canvas y Controles Flotantes tipo Zoom */}
               <div ref={recordingContainerRef} className="bg-black aspect-video rounded-3xl overflow-hidden relative shadow-2xl border border-slate-800 flex items-center justify-center group">
                 
-                {/* Invisible helper video elements rendered in-viewport at normal size to prevent browser throttling */}
-                <div className="pointer-events-none" style={{ position: 'absolute', inset: 0, overflow: 'hidden', opacity: 0.001, zIndex: 0 }}>
+                {/* Invisible helper video elements rendered off-screen at active size to prevent browser throttling */}
+                <div className="pointer-events-none" style={{ position: 'absolute', left: '-9999px', top: '-9999px', width: '320px', height: '240px', overflow: 'hidden' }}>
                   <video
                     ref={cameraVideoRef}
                     autoPlay
                     muted
                     playsInline
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    style={{ width: '320px', height: '240px', objectFit: 'cover' }}
                   />
                   <video
                     ref={screenVideoRef}
                     autoPlay
                     muted
                     playsInline
-                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                    style={{ width: '320px', height: '240px', objectFit: 'contain' }}
                   />
                 </div>
 
@@ -1890,6 +1999,26 @@ export default function App() {
                   setSuggestedChapters(chapters);
                   toast.success(lang === 'en' ? 'Chapters loaded!' : '¡Capítulos cargados!');
                 }}
+              />
+
+              {/* Recording Settings */}
+              <RecordingSettings
+                devices={devices}
+                selectedMicId={selectedMicId}
+                setSelectedMicId={setSelectedMicId}
+                recordMic={recordMic}
+                setRecordMic={setRecordMic}
+                recordSystemAudio={recordSystemAudio}
+                setRecordSystemAudio={setRecordSystemAudio}
+                micVolume={micVolume}
+                setMicVolume={setMicVolume}
+                systemVolume={systemVolume}
+                setSystemVolume={setSystemVolume}
+                videoQuality={videoQuality}
+                setVideoQuality={setVideoQuality}
+                isRecording={isRecording}
+                systemAudioMissingWarning={systemAudioMissingWarning}
+                requestMicPermission={requestMicPermission}
               />
             </div>
           </div>
