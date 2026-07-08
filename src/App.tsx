@@ -578,7 +578,9 @@ export default function App() {
   const [transcriptionTab, setTranscriptionTab] = useState<'clean' | 'srt'>('clean');
 
   const activeChaptersRef = useRef<ChapterMarker[]>([]);
-  const recordRtcRef = useRef<any>(null);
+  const recordRtcRef = useRef<any>(null); // kept for legacy compatibility
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
   const recognitionRef = useRef<any>(null);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const startTimeRef = useRef<number>(0);
@@ -1337,65 +1339,80 @@ export default function App() {
 
   const performActualStartRecording = async () => {
     try {
-      const canvas = canvasRef.current;
-      if (!canvas) throw new Error("Canvas element not available");
+      // ---- DIRECT STREAM RECORDING (no canvas, no RecordRTC) ----
+      // Record directly from the active streams so background-tab throttling
+      // never affects the recording. The canvas preview may freeze when the
+      // user switches tabs, but the MediaRecorder keeps capturing the raw stream.
 
-      // NOTE: Do NOT reset canvas.width/height here — the compositor setInterval is already
-      // running and painting. Resetting dimensions would clear the canvas and break the stream.
-      // canvas.width and canvas.height are already set to 1280x720 by the compositor useEffect.
+      // Video source: screen stream if available, otherwise camera
+      const videoTracks = screenStreamRef.current
+        ? screenStreamRef.current.getVideoTracks()
+        : (cameraStreamRef.current?.getVideoTracks() ?? []);
 
-      // Capture the already-running canvas stream at 30fps
-      const canvasStream = (canvas as any).captureStream(30);
+      // Audio source: mic from camera stream (audio: true was requested)
+      const audioTracks = cameraStreamRef.current?.getAudioTracks() ?? [];
 
-      if (audioDestinationRef.current) {
-        audioDestinationRef.current.stream.getAudioTracks().forEach(t => {
-          canvasStream.addTrack(t);
-        });
+      if (videoTracks.length === 0) {
+        throw new Error('No hay stream de video disponible. Abre la cámara o comparte pantalla antes de grabar.');
       }
 
-      // Configuración de SDK Profesional para grabación local con MimeType dinámico y calidad ajustable
-      const mime = getSupportedMimeType();
-      const recordRtcOptions: any = {
-        type: 'video',
-        bitsPerSecond: videoQuality === 'high' ? 5000000 : 2500000,
-        frameInterval: videoQuality === 'high' ? 15 : 30,
-        disableLogs: false,
-        autoWriteToDisk: false
+      const combinedStream = new MediaStream([...videoTracks, ...audioTracks]);
+
+      // Pick best supported MIME type
+      const mimeType = [
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm',
+      ].find(m => MediaRecorder.isTypeSupported(m)) ?? '';
+
+      const recorderOptions: MediaRecorderOptions = {
+        bitsPerSecond: videoQuality === 'high' ? 5_000_000 : 2_500_000,
       };
-      if (mime) {
-        recordRtcOptions.mimeType = mime;
-      }
+      if (mimeType) recorderOptions.mimeType = mimeType;
 
-      recordRtcRef.current = new RecordRTC(canvasStream, recordRtcOptions);
+      recordingChunksRef.current = [];
+      const recorder = new MediaRecorder(combinedStream, recorderOptions);
 
-      recordRtcRef.current.startRecording();
-      
-      // Iniciar también el SDK de audio para respaldo si fuera necesario
-      // sdkStart(); 
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          recordingChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const finalBlob = new Blob(recordingChunksRef.current, {
+          type: mimeType || 'video/webm',
+        });
+        await handleRecordingStopProcessing(finalBlob);
+      };
+
+      recorder.start(1000); // flush a chunk every second
+      mediaRecorderRef.current = recorder;
 
       setIsRecording(true);
       setIsPaused(false);
       addChapterMarker(isEn ? 'Class Started' : 'Inicio de Clase');
-    } catch (err) {
-      console.error('Error in actual recording start:', err);
-      toast.error(isEn ? 'Critical error starting the recorder engine.' : 'Error crítico al iniciar el motor de grabación.');
+    } catch (err: any) {
+      console.error('Error starting recording:', err);
+      toast.error(err?.message ?? (isEn ? 'Error starting recorder.' : 'Error al iniciar la grabación.'));
     }
   };
 
   
   const pauseRecording = () => {
-    if (recordRtcRef.current && recordRtcRef.current.getState() === 'recording') {
-      recordRtcRef.current.pauseRecording();
+    const rec = mediaRecorderRef.current;
+    if (rec && rec.state === 'recording') {
+      rec.pause();
       setIsPaused(true);
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     }
   };
 
   const resumeRecording = () => {
-    if (recordRtcRef.current && recordRtcRef.current.getState() === 'paused') {
-      recordRtcRef.current.resumeRecording();
+    const rec = mediaRecorderRef.current;
+    if (rec && rec.state === 'paused') {
+      rec.resume();
       setIsPaused(false);
-      // Resume timer
       startTimeRef.current = Date.now() - (recordingTime * 1000);
       timerIntervalRef.current = setInterval(() => {
         setRecordingTime(Math.floor((Date.now() - startTimeRef.current) / 1000));
@@ -1513,21 +1530,18 @@ export default function App() {
   };
 
   const stopRecording = () => {
-    console.log("DEBUG: stopRecording called");
-    if (recordRtcRef.current && recordRtcRef.current.getState() !== 'inactive') {
+    const rec = mediaRecorderRef.current;
+    if (rec && rec.state !== 'inactive') {
       setIsRecording(false);
+      setIsPaused(false);
       if (recognitionRef.current) {
-        try {
-          recognitionRef.current.onend = null;
-          recognitionRef.current.stop();
-        } catch (e) {}
+        try { recognitionRef.current.onend = null; recognitionRef.current.stop(); } catch (e) {}
       }
-      recordRtcRef.current.stopRecording(async () => {
-        const finalBlob = recordRtcRef.current.getBlob();
-        await handleRecordingStopProcessing(finalBlob);
-      });
+      rec.stop(); // triggers recorder.onstop which calls handleRecordingStopProcessing
+      mediaRecorderRef.current = null;
     } else {
       setIsRecording(false);
+      setIsPaused(false);
     }
   };
 
