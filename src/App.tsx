@@ -1047,9 +1047,10 @@ export default function App() {
   useEffect(() => { videoFilterRef.current = videoFilter; }, [videoFilter]);
   useEffect(() => { langRef.current = lang; }, [lang]);
 
-  // Canvas compositor — uses setInterval (NOT requestAnimationFrame) so it keeps
+  // Canvas compositor — uses a Web Worker driven timer so it keeps
   // running even when the user switches to another tab (e.g., their presentation).
-  // requestAnimationFrame is throttled to ~1fps in background tabs by Chrome.
+  // requestAnimationFrame and main-thread setInterval/setTimeout are throttled
+  // aggressively (~1fps) in background tabs by Chrome to save CPU.
   useEffect(() => {
     if (currentView !== 'studio') return;
 
@@ -1160,11 +1161,44 @@ export default function App() {
       }
     };
 
-    // 30fps via setInterval — survives tab switching (unlike requestAnimationFrame)
-    const intervalId = setInterval(drawFrame, 1000 / 30);
+    let worker: Worker | null = null;
+    let fallbackInterval: NodeJS.Timeout | null = null;
+
+    try {
+      // Create inline worker code to act as our background timer
+      const workerCode = `
+        let timer = null;
+        self.onmessage = (e) => {
+          if (e.data === 'start') {
+            timer = setInterval(() => self.postMessage('tick'), 1000 / 30);
+          } else if (e.data === 'stop') {
+            clearInterval(timer);
+          }
+        };
+      `;
+      const blob = new Blob([workerCode], { type: 'application/javascript' });
+      const workerUrl = URL.createObjectURL(blob);
+      worker = new Worker(workerUrl);
+      worker.onmessage = () => {
+        drawFrame();
+      };
+      worker.postMessage('start');
+      
+      // Cleanup Blob URL immediately after construction
+      URL.revokeObjectURL(workerUrl);
+    } catch (e) {
+      console.warn("Failed to create Web Worker timer, falling back to main-thread interval:", e);
+      fallbackInterval = setInterval(drawFrame, 1000 / 30);
+    }
 
     return () => {
-      clearInterval(intervalId);
+      if (worker) {
+        worker.postMessage('stop');
+        worker.terminate();
+      }
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval);
+      }
     };
   }, [currentView]); // Only restarts when navigating views, never during recording
 
@@ -1339,26 +1373,22 @@ export default function App() {
 
   const performActualStartRecording = async () => {
     try {
-      // ---- DIRECT STREAM RECORDING (no canvas, no RecordRTC) ----
-      // Record directly from the active streams so background-tab throttling
-      // never affects the recording. The canvas preview may freeze when the
-      // user switches tabs, but the MediaRecorder keeps capturing the raw stream.
+      const canvas = canvasRef.current;
+      if (!canvas) throw new Error("Canvas element not available");
 
-      // Video source: screen stream if available, otherwise camera
-      const videoTracks = screenStreamRef.current
-        ? screenStreamRef.current.getVideoTracks()
-        : (cameraStreamRef.current?.getVideoTracks() ?? []);
+      // Capture the canvas stream at 30fps. Since the compositor loop is driven
+      // by a background Web Worker, it will continue rendering at a constant rate
+      // even when this tab is in the background.
+      const canvasStream = (canvas as any).captureStream(30);
 
-      // Audio source: mic from camera stream (audio: true was requested)
-      const audioTracks = cameraStreamRef.current?.getAudioTracks() ?? [];
-
-      if (videoTracks.length === 0) {
-        throw new Error('No hay stream de video disponible. Abre la cámara o comparte pantalla antes de grabar.');
+      // Mix in the microphone audio tracks from the audio mixer destination node
+      if (audioDestinationRef.current) {
+        audioDestinationRef.current.stream.getAudioTracks().forEach(t => {
+          canvasStream.addTrack(t);
+        });
       }
 
-      const combinedStream = new MediaStream([...videoTracks, ...audioTracks]);
-
-      // Pick best supported MIME type
+      // Pick best supported WebM/MP4 MIME type
       const mimeType = [
         'video/webm;codecs=vp9,opus',
         'video/webm;codecs=vp8,opus',
@@ -1371,7 +1401,7 @@ export default function App() {
       if (mimeType) recorderOptions.mimeType = mimeType;
 
       recordingChunksRef.current = [];
-      const recorder = new MediaRecorder(combinedStream, recorderOptions);
+      const recorder = new MediaRecorder(canvasStream, recorderOptions);
 
       recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) {
@@ -1386,7 +1416,7 @@ export default function App() {
         await handleRecordingStopProcessing(finalBlob);
       };
 
-      recorder.start(1000); // flush a chunk every second
+      recorder.start(1000); // chunk every 1 second
       mediaRecorderRef.current = recorder;
 
       setIsRecording(true);
