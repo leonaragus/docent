@@ -870,6 +870,10 @@ export default function App() {
         if (activeStreamRef.current === stream) {
           syncActiveStream(cameraStreamRef.current || null);
         }
+        // Re-enable camera video tracks when screen share is stopped from browser UI
+        if (cameraStreamRef.current) {
+          cameraStreamRef.current.getVideoTracks().forEach(t => { t.enabled = true; });
+        }
       };
     }
     
@@ -1066,14 +1070,18 @@ export default function App() {
       const currentFilter = videoFilterRef.current;
       const currentLang = langRef.current;
 
-      const hasCamera = !!(cameraStreamRef.current && cameraVideo && cameraVideo.readyState >= 1 && cameraVideo.videoWidth > 0);
-      const hasScreen = !!(screenStreamRef.current && screenVideo && screenVideo.readyState >= 1 && screenVideo.videoWidth > 0);
+      const hasCamera = !!(cameraStreamRef.current && cameraVideo && cameraVideo.readyState >= 2 && cameraVideo.videoWidth > 0);
+      // Use screenStreamRef directly for immediate detection — don't wait for screenVideo.readyState
+      const screenReady = !!(screenVideoRef.current && screenVideoRef.current.readyState >= 2 && screenVideoRef.current.videoWidth > 0);
+      const hasScreen = !!(screenStreamRef.current && screenReady);
 
       // Clear canvas
       ctx.fillStyle = '#0f172a';
       ctx.fillRect(0, 0, 1280, 720);
 
-      if (hasScreen && screenVideo) {
+      if (screenStreamRef.current) {
+        // Screen is active - draw screen + static PIP
+        if (screenReady && screenVideo) {
         // Force play if browser paused it
         if (screenVideo.paused) {
           screenVideo.play().catch(() => {});
@@ -1122,7 +1130,35 @@ export default function App() {
         ctx.lineWidth = 4;
         ctx.strokeStyle = '#6366f1';
         ctx.stroke();
-        ctx.restore();
+          ctx.restore();
+        } else {
+          // Screen stream exists but video not ready yet — show placeholder
+          ctx.fillStyle = '#0f172a';
+          ctx.fillRect(0, 0, 1280, 720);
+          ctx.fillStyle = '#818cf8';
+          ctx.font = '24px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('Cargando pantalla compartida...', 640, 360);
+
+          // Still draw PIP placeholder while loading
+          const r = 80;
+          const { x, y } = bubblePositionRef.current;
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.fillStyle = '#334155';
+          ctx.fillRect(x - r, y - r, r * 2, r * 2);
+          ctx.restore();
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = '#6366f1';
+          ctx.stroke();
+          ctx.restore();
+        }
       } else if (hasCamera && cameraVideo) {
         // Camera only (Full Screen)
         if (cameraVideo.paused) {
@@ -1205,32 +1241,28 @@ export default function App() {
   };
 
   const toggleScreen = async () => {
-    console.log("DEBUG: toggleScreen called, screenStream is:", !!screenStream);
-    // #region debug-point C:toggle-screen-entry
-    reportCameraPermissionDebug('C', 'App.tsx:toggleScreen', 'toggleScreen invoked', {
-      hasCameraStream: !!cameraStream,
-      hasScreenStream: !!screenStream,
-      hasActiveStream: !!activeStream,
-      mediaDevicesAvailable: !!navigator.mediaDevices?.getDisplayMedia
-    });
-    // #endregion
     if (screenStream) {
+      // Stop screen share
       const previousScreenStream = screenStreamRef.current;
       stopStream(previousScreenStream);
       syncScreenStream(null);
       if (activeStreamRef.current === previousScreenStream) syncActiveStream(cameraStreamRef.current || null);
+      // Re-enable camera video tracks when screen share stops
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getVideoTracks().forEach(t => { t.enabled = true; });
+      }
     } else {
       try {
+        // Pause camera video tracks BEFORE requesting screen share to avoid hardware conflict
+        if (cameraStreamRef.current) {
+          cameraStreamRef.current.getVideoTracks().forEach(t => { t.enabled = false; });
+        }
         await requestScreenStream();
       } catch (e: any) {
-        console.error('Screen error:', e);
-         // #region debug-point C:screen-request-error
-         reportCameraPermissionDebug('C', 'App.tsx:toggleScreen', 'screen permission request failed', {
-           name: e?.name,
-           message: e?.message
-         });
-         // #endregion
-        
+        // If screen share failed, re-enable camera video tracks
+        if (cameraStreamRef.current) {
+          cameraStreamRef.current.getVideoTracks().forEach(t => { t.enabled = true; });
+        }
         let errorMsg = lang === 'en' ? `Screen sharing error: ${e.message || e}` : `Error al compartir pantalla: ${e.message || e}`;
         if (e.name === 'NotReadableError' || e.message?.includes('Timeout')) {
           errorMsg = lang === 'en' 
