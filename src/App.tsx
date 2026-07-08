@@ -1045,151 +1045,124 @@ export default function App() {
   useEffect(() => { videoFilterRef.current = videoFilter; }, [videoFilter]);
   useEffect(() => { langRef.current = lang; }, [lang]);
 
-  // Universal canvas compositor loop (Screen Share + Camera circular PIP bubble)
-  // Depends on currentView to start when studio canvas appears.
-  // Reads streams from REFS so it does NOT restart when screen share starts/stops during recording.
+  // Canvas compositor — uses setInterval (NOT requestAnimationFrame) so it keeps
+  // running even when the user switches to another tab (e.g., their presentation).
+  // requestAnimationFrame is throttled to ~1fps in background tabs by Chrome.
   useEffect(() => {
     if (currentView !== 'studio') return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     canvas.width = 1280;
     canvas.height = 720;
 
-    let isCompRunning = true;
+    const drawPipBubble = () => {
+      const r = 80;
+      const { x, y } = bubblePositionRef.current;
+
+      // Clip to circle
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.clip();
+
+      const profileImg = profileImageObjRef.current;
+      if (profileImg && profileImg.complete && profileImg.naturalWidth > 0) {
+        const iw = profileImg.naturalWidth;
+        const ih = profileImg.naturalHeight;
+        const minSide = Math.min(iw, ih);
+        ctx.drawImage(profileImg, (iw - minSide) / 2, (ih - minSide) / 2, minSide, minSide, x - r, y - r, r * 2, r * 2);
+      } else {
+        // Fallback: coloured circle with "Prof" text
+        ctx.fillStyle = '#4338ca';
+        ctx.fillRect(x - r, y - r, r * 2, r * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 28px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Prof', x, y);
+      }
+      ctx.restore();
+
+      // Ring border
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, r + 2, 0, Math.PI * 2);
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#6366f1';
+      ctx.stroke();
+      ctx.restore();
+    };
 
     const drawFrame = () => {
-      if (!isCompRunning) return;
-
       const cameraVideo = cameraVideoRef.current;
       const screenVideo = screenVideoRef.current;
       const currentFilter = videoFilterRef.current;
       const currentLang = langRef.current;
 
+      const hasScreen = !!(screenStreamRef.current);
+      const screenVideoReady = !!(screenVideo && screenVideo.readyState >= 2 && screenVideo.videoWidth > 0);
       const hasCamera = !!(cameraStreamRef.current && cameraVideo && cameraVideo.readyState >= 2 && cameraVideo.videoWidth > 0);
-      // Use screenStreamRef directly for immediate detection — don't wait for screenVideo.readyState
-      const screenReady = !!(screenVideoRef.current && screenVideoRef.current.readyState >= 2 && screenVideoRef.current.videoWidth > 0);
-      const hasScreen = !!(screenStreamRef.current && screenReady);
 
-      // Clear canvas
+      // --- Background ---
       ctx.fillStyle = '#0f172a';
       ctx.fillRect(0, 0, 1280, 720);
 
-      if (screenStreamRef.current) {
-        // Screen is active - draw screen + static PIP
-        if (screenReady && screenVideo) {
-        // Force play if browser paused it
-        if (screenVideo.paused) {
-          screenVideo.play().catch(() => {});
-        }
-
-        // Draw shared screen as full background
-        try {
-          ctx.drawImage(screenVideo, 0, 0, 1280, 720);
-        } catch (e) {
-          ctx.fillStyle = '#000000';
-          ctx.fillRect(0, 0, 1280, 720);
-        }
-
-        // Draw profile photo PIP bubble on top of screen instead of live camera to save resources
-        const r = 80;
-        const { x, y } = bubblePositionRef.current;
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.clip();
-
-        const profileImg = profileImageObjRef.current;
-        if (profileImg) {
-          const imgW = profileImg.width;
-          const imgH = profileImg.height;
-          const minSize = Math.min(imgW, imgH);
-          const sx = (imgW - minSize) / 2;
-          const sy = (imgH - minSize) / 2;
-          ctx.drawImage(profileImg, sx, sy, minSize, minSize, x - r, y - r, r * 2, r * 2);
+      if (hasScreen) {
+        // SCREEN SHARE MODE
+        if (screenVideoReady) {
+          try {
+            // Force-play the video element if paused
+            if (screenVideo!.paused) screenVideo!.play().catch(() => {});
+            ctx.drawImage(screenVideo!, 0, 0, 1280, 720);
+          } catch (_) {
+            ctx.fillStyle = '#111827';
+            ctx.fillRect(0, 0, 1280, 720);
+          }
         } else {
-          ctx.fillStyle = '#334155';
-          ctx.fillRect(x - r, y - r, r * 2, r * 2);
-          ctx.fillStyle = '#94a3b8';
-          ctx.font = 'bold 40px sans-serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText('PIP', x, y);
-        }
-        ctx.restore();
-
-        // Border
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = '#6366f1';
-        ctx.stroke();
-          ctx.restore();
-        } else {
-          // Screen stream exists but video not ready yet — show placeholder
-          ctx.fillStyle = '#0f172a';
+          // Waiting for screen video to be ready
+          ctx.fillStyle = '#111827';
           ctx.fillRect(0, 0, 1280, 720);
           ctx.fillStyle = '#818cf8';
-          ctx.font = '24px sans-serif';
+          ctx.font = '22px sans-serif';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText('Cargando pantalla compartida...', 640, 360);
+        }
 
-          // Still draw PIP placeholder while loading
-          const r = 80;
-          const { x, y } = bubblePositionRef.current;
-          ctx.save();
-          ctx.beginPath();
-          ctx.arc(x, y, r, 0, Math.PI * 2);
-          ctx.clip();
-          ctx.fillStyle = '#334155';
-          ctx.fillRect(x - r, y - r, r * 2, r * 2);
-          ctx.restore();
-          ctx.save();
-          ctx.beginPath();
-          ctx.arc(x, y, r, 0, Math.PI * 2);
-          ctx.lineWidth = 4;
-          ctx.strokeStyle = '#6366f1';
-          ctx.stroke();
-          ctx.restore();
-        }
-      } else if (hasCamera && cameraVideo) {
-        // Camera only (Full Screen)
-        if (cameraVideo.paused) {
-          cameraVideo.play().catch(() => {});
-        }
-        if (currentFilter !== 'none') {
-          ctx.filter = currentFilter;
-        }
-        ctx.drawImage(cameraVideo, 0, 0, 1280, 720);
+        // Always draw PIP (static image or fallback) when screen is active
+        drawPipBubble();
+
+      } else if (hasCamera) {
+        // CAMERA ONLY MODE
+        if (cameraVideo!.paused) cameraVideo!.play().catch(() => {});
+        if (currentFilter !== 'none') ctx.filter = currentFilter;
+        ctx.drawImage(cameraVideo!, 0, 0, 1280, 720);
         ctx.filter = 'none';
+
       } else {
-        // Waiting screen
+        // IDLE / WAITING
         ctx.fillStyle = '#1e1b4b';
         ctx.fillRect(0, 0, 1280, 720);
         ctx.font = 'bold 40px sans-serif';
         ctx.fillStyle = '#ffffff';
         ctx.textAlign = 'center';
-        ctx.fillText(currentLang === 'en' ? 'DOCENT STUDIO' : 'ESTUDIO DOCENT', 640, 340);
+        ctx.textBaseline = 'middle';
+        ctx.fillText(currentLang === 'en' ? 'DOCENT STUDIO' : 'ESTUDIO DOCENT', 640, 330);
         ctx.font = '20px sans-serif';
         ctx.fillStyle = '#818cf8';
-        ctx.fillText(currentLang === 'en' ? 'Connect camera or share screen to start' : 'Conecta la cámara o comparte pantalla para empezar', 640, 390);
+        ctx.fillText(currentLang === 'en' ? 'Connect camera or share screen to start' : 'Conecta la cámara o comparte pantalla para empezar', 640, 385);
       }
-
-      animationFrameRef.current = requestAnimationFrame(drawFrame);
     };
 
-    animationFrameRef.current = requestAnimationFrame(drawFrame);
+    // 30fps via setInterval — survives tab switching (unlike requestAnimationFrame)
+    const intervalId = setInterval(drawFrame, 1000 / 30);
 
     return () => {
-      isCompRunning = false;
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      clearInterval(intervalId);
     };
   }, [currentView]); // Only restarts when navigating views, never during recording
 
@@ -1367,11 +1340,12 @@ export default function App() {
       const canvas = canvasRef.current;
       if (!canvas) throw new Error("Canvas element not available");
 
-      canvas.width = 1280;
-      canvas.height = 720;
+      // NOTE: Do NOT reset canvas.width/height here — the compositor setInterval is already
+      // running and painting. Resetting dimensions would clear the canvas and break the stream.
+      // canvas.width and canvas.height are already set to 1280x720 by the compositor useEffect.
 
-      // Usamos el API nativo de MediaRecorder para mayor estabilidad, orquestado por RecordRTC
-      const canvasStream = (canvas as any).captureStream(25); // Bajamos a 25fps para reducir carga de CPU
+      // Capture the already-running canvas stream at 30fps
+      const canvasStream = (canvas as any).captureStream(30);
 
       if (audioDestinationRef.current) {
         audioDestinationRef.current.stream.getAudioTracks().forEach(t => {
